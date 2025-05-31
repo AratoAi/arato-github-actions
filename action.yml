@@ -1,0 +1,259 @@
+name: 'Arato Build Action'
+description: 'Build and monitor Arato AI experiments with automatic progress tracking'
+author: 'AratoAi'
+
+branding:
+  icon: 'zap'
+  color: 'blue'
+
+inputs:
+  experiments:
+    description: 'Experiment(s) to build. Use either a single experiment ID like "flow_id/experiment_id" or a JSON array like ["flow_id/exp1", "flow_id/exp2"]'
+    required: true
+  api_keys:
+    description: 'API keys for AI model providers as a JSON object (e.g., {"openai_api_key": "sk-...", "anthropic_api_key": "ant-..."})'
+    required: true
+  api_base_url:
+    description: 'Arato API base URL (defaults to production)'
+    required: false
+    default: 'https://api.arato.ai'
+  arato_api_key:
+    description: 'Your Arato API key (starts with "ar-")'
+    required: true
+
+outputs:
+  success:
+    description: 'Whether all builds completed successfully (true/false)'
+    value: ${{ steps.summary.outputs.success }}
+  completed_count:
+    description: 'Number of experiments that completed successfully'
+    value: ${{ steps.summary.outputs.completed_count }}
+  failed_count:
+    description: 'Number of experiments that failed'
+    value: ${{ steps.summary.outputs.failed_count }}
+  results_summary:
+    description: 'Summary of build results as JSON'
+    value: ${{ steps.summary.outputs.results_summary }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        # Validate experiments format
+        if [[ '${{ inputs.experiments }}' =~ ^\[.*\]$ ]]; then
+          echo "✓ Multiple experiments provided"
+          echo '${{ inputs.experiments }}' | jq empty || (echo "❌ Invalid JSON array format" && exit 1)
+        else
+          echo "✓ Single experiment provided: ${{ inputs.experiments }}"
+        fi
+        
+        # Validate API keys format
+        echo '${{ inputs.api_keys }}' | jq empty || (echo "❌ Invalid JSON format for API keys" && exit 1)
+        echo "✓ API keys format validated"
+
+    - name: Trigger Arato build
+      shell: bash
+      id: build
+      run: |
+        # Prepare experiment data
+        if [[ '${{ inputs.experiments }}' =~ ^\[.*\]$ ]]; then
+          experiments='${{ inputs.experiments }}'
+        else
+          experiments='"${{ inputs.experiments }}"'
+        fi
+        
+        # Create request payload
+        payload=$(jq -n \
+          --argjson experiment "$experiments" \
+          --argjson api_keys '${{ inputs.api_keys }}' \
+          '{experiment: $experiment, api_keys: $api_keys}')
+        
+        echo "🚀 Starting Arato build..."
+        
+        # Make API call
+        response=$(curl -s -w "\n%{http_code}" \
+          -X POST \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
+          -d "$payload" \
+          "${{ inputs.api_base_url }}/build")
+        
+        # Parse response
+        http_code=$(echo "$response" | tail -n1)
+        response_body=$(echo "$response" | head -n -1)
+        
+        if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+          echo "✅ Build started successfully"
+          echo "build_success=true" >> $GITHUB_OUTPUT
+          
+          # Extract experiment IDs for monitoring
+          if echo "$response_body" | jq -e '.builds' >/dev/null 2>&1; then
+            experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id | split("/")[1]] | @json')
+          elif echo "$response_body" | jq -e '.run_id' >/dev/null 2>&1; then
+            experiment_ids=$(echo "$response_body" | jq -r '[.run_id | split("/")[1]] | @json')
+          else
+            experiment_ids='[]'
+          fi
+          
+          echo "experiment_ids=$experiment_ids" >> $GITHUB_OUTPUT
+          echo "Found experiments to monitor: $experiment_ids"
+        else
+          echo "❌ Build failed with HTTP $http_code"
+          echo "$response_body"
+          echo "build_success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Monitor build progress
+      shell: bash
+      id: monitor
+      if: steps.build.outputs.build_success == 'true'
+      run: |
+        echo "🔍 Monitoring build progress..."
+        
+        experiment_ids='${{ steps.build.outputs.experiment_ids }}'
+        experiments=($(echo "$experiment_ids" | jq -r '.[]'))
+        
+        if [[ ${#experiments[@]} -eq 0 ]]; then
+          echo "⚠️ No experiments to monitor"
+          echo "completed=0" >> $GITHUB_OUTPUT
+          echo "failed=0" >> $GITHUB_OUTPUT
+          echo "results={}" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "Monitoring ${#experiments[@]} experiment(s)..."
+        
+        # Track progress
+        declare -A status
+        declare -A results
+        completed=0
+        failed=0
+        max_wait_minutes=60
+        polling_interval=30
+        max_iterations=$((max_wait_minutes * 60 / polling_interval))
+        
+        for exp in "${experiments[@]}"; do
+          status["$exp"]="running"
+        done
+        
+        # Monitor loop
+        for ((i=1; i<=max_iterations; i++)); do
+          echo "🔄 Check $i/$max_iterations"
+          all_done=true
+          
+          for exp in "${experiments[@]}"; do
+            if [[ "${status[$exp]}" == "running" ]]; then
+              response=$(curl -s -w "\n%{http_code}" \
+                -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
+                "${{ inputs.api_base_url }}/build/$exp")
+              
+              http_code=$(echo "$response" | tail -n1)
+              response_body=$(echo "$response" | head -n -1)
+              
+              if [[ "$http_code" == "200" ]] && echo "$response_body" | jq -e '. | length > 0' >/dev/null; then
+                echo "  ✅ $exp completed"
+                status["$exp"]="completed"
+                results["$exp"]="$response_body"
+                ((completed++))
+              elif [[ "$http_code" =~ ^4[0-9][0-9]$ ]]; then
+                echo "  ❌ $exp failed"
+                status["$exp"]="failed"
+                ((failed++))
+              else
+                echo "  ⏳ $exp still running"
+                all_done=false
+              fi
+            fi
+          done
+          
+          if [[ "$all_done" == "true" ]]; then
+            echo "🎉 All experiments finished!"
+            break
+          fi
+          
+          if [[ $i -lt $max_iterations ]]; then
+            sleep $polling_interval
+          fi
+        done
+        
+        echo "Final status: $completed completed, $failed failed"
+        echo "completed=$completed" >> $GITHUB_OUTPUT
+        echo "failed=$failed" >> $GITHUB_OUTPUT
+        
+        # Build results JSON
+        results_json="{"
+        first=true
+        for exp in "${experiments[@]}"; do
+          if [[ "${status[$exp]}" == "completed" ]]; then
+            [[ "$first" != "true" ]] && results_json+=","
+            results_json+="\"$exp\":${results[$exp]}"
+            first=false
+          fi
+        done
+        results_json+="}"
+        
+        echo "results=$results_json" >> $GITHUB_OUTPUT
+
+    - name: Generate summary
+      shell: bash
+      id: summary
+      if: always()
+      run: |
+        echo "📊 Generating build summary..."
+        
+        build_success="${{ steps.build.outputs.build_success || 'false' }}"
+        completed="${{ steps.monitor.outputs.completed || '0' }}"
+        failed="${{ steps.monitor.outputs.failed || '0' }}"
+        
+        # Determine overall success
+        if [[ "$build_success" == "true" && "$failed" == "0" && "$completed" -gt 0 ]]; then
+          overall_success="true"
+          status_emoji="✅"
+          status_text="Success"
+        else
+          overall_success="false"
+          status_emoji="❌"
+          status_text="Failed"
+        fi
+        
+        echo "success=$overall_success" >> $GITHUB_OUTPUT
+        echo "completed_count=$completed" >> $GITHUB_OUTPUT
+        echo "failed_count=$failed" >> $GITHUB_OUTPUT
+        
+        # Create summary JSON
+        summary=$(jq -n \
+          --arg status "$status_text" \
+          --arg completed "$completed" \
+          --arg failed "$failed" \
+          --argjson success "$overall_success" \
+          '{
+            status: $status,
+            success: $success,
+            completed_count: ($completed | tonumber),
+            failed_count: ($failed | tonumber),
+            total_count: (($completed | tonumber) + ($failed | tonumber))
+          }')
+        
+        echo "results_summary=$summary" >> $GITHUB_OUTPUT
+        
+        # GitHub Actions summary
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        # $status_emoji Arato Build Report
+        
+        **Status:** $status_text  
+        **Experiments:** ${{ inputs.experiments }}  
+        **Completed:** $completed  
+        **Failed:** $failed  
+        
+        ## Configuration
+        - **API Endpoint:** \`${{ inputs.api_base_url }}\`
+        - **Monitoring:** 30-second polling, 60-minute timeout
+        
+        ---
+        _Build completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')_
+        EOF
+        
+        echo "$status_emoji Build $status_text: $completed completed, $failed failed"
