@@ -189,7 +189,7 @@ api_keys: '{openai_api_key: sk-...}'
 **Solution:** This is normal for complex experiments. The workflow will:
 - Report current status
 - Mark incomplete experiments as "in progress"
-- You can check Arato dashboard for final results
+- You can check Arato UI for final results
 
 ### Getting Help
 
