@@ -74,9 +74,8 @@ runs:
 
         echo "Payload: $payload"
         echo "Using API base URL: ${{ inputs.api_base_url }}"
-        echo "Using Arato API key: $(echo '${{ inputs.arato_api_key }}' | cut -c1-2)***"  # Mask key for security
-        echo "Experiments to build: $experiments"
-        echo "API keys: $(echo '${{ inputs.api_keys }}' | jq -r 'keys[]')"
+        echo "Using Arato API key: $(echo '${{ inputs.arato_api_key }}'
+        echo "Experiments to build: $experiments"        
         
         # Make API call
         response=$(curl -s -w "\n%{http_code}" \
