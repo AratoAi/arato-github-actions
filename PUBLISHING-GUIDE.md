@@ -102,26 +102,6 @@ jobs:
           fi
 ```
 
-## 🔧 Advanced Features
-
-### Automatic Monitoring
-- ✅ Polls build status every 30 seconds
-- ✅ Automatically detects completion
-- ✅ 60-minute timeout protection
-- ✅ Real-time progress updates
-
-### Rich Reporting
-- 📊 GitHub Actions summary with results
-- 📄 Downloadable build reports
-- 🔍 Detailed logs for debugging
-- 📈 Success/failure metrics
-
-### Enterprise Ready
-- 🔒 Secure API key handling
-- 🌐 Custom API endpoints
-- 🔄 Version pinning support
-- ⚡ Optimized for CI/CD pipelines
-
 ## 🚨 Troubleshooting
 
 ### Common Issues

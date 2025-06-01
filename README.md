@@ -1,14 +1,6 @@
 # Arato Build GitHub Action
 
-A GitHub Action for triggering and monitoring Arato AI builds with automatic progress tracking and comprehensive reporting.
-
-## ✨ Features
-
-- 🚀 **Easy Setup** - Just provide your experiments and API keys
-- 🔍 **Auto-Monitoring** - Tracks build progress every 30 seconds
-- 📊 **Rich Reports** - Detailed success/failure reporting
-- 🔒 **Secure** - API keys handled through GitHub Secrets
-- ⚡ **Fast** - Optimized for quick feedback
+A GitHub Action for triggering and monitoring Arato AI builds
 
 ## 🚀 Quick Start
 
@@ -17,21 +9,20 @@ A GitHub Action for triggering and monitoring Arato AI builds with automatic pro
 Create `.github/workflows/arato-build.yml` in your repository:
 
 ```yaml
-name: Build AI Models
+name: Arato Build
 
 on:
   workflow_dispatch:
     inputs:
       experiments:
-        description: 'Experiments to build'
+        description: 'Experiments to build (for example my-notebook-id'
         required: true
-        default: 'my-flow/my-experiment'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Build with Arato
+      - name: Arato Build
         uses: AratoAi/arato@v1.0.0
         with:
           experiments: ${{ inputs.experiments }}
@@ -46,6 +37,7 @@ jobs:
 ### 2. Configure Secrets
 
 Add these secrets to your repository (Settings → Secrets → Actions):
+In this example we're using OpenAI and Anthropic but you can use whatever vendor you want
 
 | Secret Name | Description | Example |
 |-------------|-------------|---------|
@@ -56,9 +48,9 @@ Add these secrets to your repository (Settings → Secrets → Actions):
 ### 3. Run Your Build
 
 1. Go to **Actions** tab in your repository
-2. Select "Build AI Models" workflow
+2. Select "Arato Build" workflow
 3. Click "Run workflow"
-4. Enter your experiment ID (e.g., `my-flow/my-experiment`)
+4. Enter your experiment ID (e.g., `my-notebook/my-experiment` or `my-notebook`)
 5. Click "Run workflow"
 
 ## 📋 Configuration
@@ -67,7 +59,7 @@ Add these secrets to your repository (Settings → Secrets → Actions):
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `experiments` | ✅ Yes | - | Single experiment or JSON array of experiments |
+| `experiments` | ✅ Yes | - | Single experiment string or an array of experiments |
 | `api_keys` | ✅ Yes | - | JSON object with your AI model API keys |
 | `api_base_url` | ❌ No | `https://api.arato.ai` | Arato API endpoint |
 
@@ -86,7 +78,7 @@ Add these secrets to your repository (Settings → Secrets → Actions):
 
 ```yaml
 with:
-  experiments: 'customer-support/sentiment-analysis'
+  experiments: ['customer-support']
   api_keys: '{"openai_api_key": "${{ secrets.OPENAI_API_KEY }}"}'
 ```
 
@@ -94,22 +86,12 @@ with:
 
 ```yaml
 with:
-  experiments: '["flow1/exp1", "flow1/exp2", "flow2/exp1"]'
+  experiments: '["exp1", "exp2", "exp3"]'
   api_keys: |
     {
       "openai_api_key": "${{ secrets.OPENAI_API_KEY }}",
-      "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}",
-      "together_api_key": "${{ secrets.TOGETHER_API_KEY }}"
+      "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}"      
     }
-```
-
-### Custom API Endpoint
-
-```yaml
-with:
-  experiments: 'my-flow/my-experiment'
-  api_base_url: 'https://staging.arato.ai'
-  api_keys: '{"openai_api_key": "${{ secrets.OPENAI_API_KEY }}"}'
 ```
 
 ### With Result Processing
@@ -119,7 +101,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Build with Arato
+      - name: Arato Build
         id: arato-build
         uses: AratoAi/arato@v1.0.0
         with:
@@ -135,65 +117,6 @@ jobs:
           else
             echo "❌ Build failed. ${{ steps.arato-build.outputs.failed_count }} experiments failed."
           fi
-```
-
-## 🔧 Advanced Configuration
-
-### Conditional Builds
-
-```yaml
-name: Smart Build Pipeline
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      experiments: ${{ steps.detect.outputs.experiments }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Detect changed experiments
-        id: detect
-        run: |
-          # Your logic to detect which experiments changed
-          echo 'experiments=["flow1/exp1", "flow2/exp2"]' >> $GITHUB_OUTPUT
-
-  build:
-    needs: changes
-    if: needs.changes.outputs.experiments != '[]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build changed experiments
-        uses: AratoAi/arato@v1.0.0
-        with:
-          experiments: ${{ needs.changes.outputs.experiments }}
-          api_keys: '${{ vars.DEFAULT_API_KEYS }}'
-          arato_api_key: ${{ secrets.ARATO_API_KEY }}
-```
-
-### Matrix Builds
-
-```yaml
-jobs:
-  build:
-    strategy:
-      matrix:
-        environment: [staging, production]
-        experiment: [sentiment-analysis, text-classification]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build experiment
-        uses: AratoAi/arato@v1.0.0
-        with:
-          experiments: 'flows/${{ matrix.experiment }}'
-          api_base_url: 'https://${{ matrix.environment }}.arato.ai'
-          api_keys: '${{ secrets.API_KEYS }}'
-          arato_api_key: ${{ secrets.ARATO_API_KEY }}
 ```
 
 ## 📊 Monitoring & Reports
@@ -266,48 +189,23 @@ api_keys: '{openai_api_key: sk-...}'
 **Solution:** This is normal for complex experiments. The workflow will:
 - Report current status
 - Mark incomplete experiments as "in progress"
-- You can check Arato dashboard for final results
+- You can check Arato UI for final results
 
 ### Getting Help
 
 1. **Check the logs** - GitHub Actions provides detailed execution logs
 2. **Verify inputs** - Ensure all required parameters are provided correctly
 3. **Test manually** - Try your API calls manually using curl or Postman
-4. **Check Arato status** - Verify your experiments in the Arato dashboard
-
-## 🔄 Version Management
-
-### Recommended Usage
-
-```yaml
-# Use specific version (recommended for production)
-uses: AratoAi/arato@v1.0.0
-
-# Use latest stable (for development)  
-uses: AratoAi/arato@main
-```
-
-### Version History
-
-- **v1.0.0** - Initial release with monitoring and reporting
-- **v1.1.0** - Added custom API endpoint support
-- **v1.2.0** - Enhanced error handling and timeouts
+4. **Check Arato status** - Verify your experiments in the Arato UI
 
 ## 📚 More Examples
 
 Check the [examples/](examples/) directory for complete workflow templates:
 
-- **Basic Usage** - Simple single experiment build
-- **Multi-Environment** - Deploy to staging and production
-- **Conditional Builds** - Build only changed experiments
-- **Direct Action** - Using the action directly in steps
-- **Matrix Builds** - Test multiple configurations
-
 ## 🤝 Support
 
 - 📖 **Documentation** - Check this README and examples
 - 🐛 **Issues** - Report bugs in the Issues tab
-- 💬 **Discussions** - Ask questions in Discussions
 - 📧 **Contact** - Reach out to the Arato team
 
 ---
