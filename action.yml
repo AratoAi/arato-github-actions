@@ -74,7 +74,7 @@ runs:
 
         echo "Payload: $payload"
         echo "Using API base URL: ${{ inputs.api_base_url }}"
-        echo "Using Arato API key: $(echo '${{ inputs.arato_api_key }}'
+        echo "Using Arato API key: ${ inputs.arato_api_key }}"
         echo "Experiments to build: $experiments"        
         
         # Make API call
