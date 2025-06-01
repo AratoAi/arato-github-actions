@@ -71,11 +71,15 @@ runs:
           '{experiment: $experiment, api_keys: $api_keys}')
         
         echo "🚀 Starting Arato build..."
-
-        echo "Payload: $payload"
-        echo "Using API base URL: ${{ inputs.api_base_url }}"
-        echo "Using Arato API key: ${{ inputs.arato_api_key }}"
-        echo "Experiments to build: $experiments"        
+        
+        # Debug: Print the full curl command
+        echo "🔍 Full curl command:"
+        echo "curl -s -w \"\\n%{http_code}\" \\"
+        echo "  -X POST \\"
+        echo "  -H \"Content-Type: application/json\" \\"
+        echo "  -H \"Authorization: Bearer ${{ inputs.arato_api_key }}\" \\"
+        echo "  -d '$payload' \\"
+        echo "  \"${{ inputs.api_base_url }}/api/build\""
         
         # Make API call
         response=$(curl -s -w "\n%{http_code}" \
