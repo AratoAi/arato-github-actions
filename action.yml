@@ -3,7 +3,7 @@ description: 'Build and monitor Arato AI experiments with automatic progress tra
 author: 'AratoAi'
 
 branding:
-  icon: 'zap'
+  icon: 'activity'
   color: 'blue'
 
 inputs:
@@ -89,12 +89,18 @@ runs:
           echo "build_success=true" >> $GITHUB_OUTPUT
           
           # Extract experiment IDs for monitoring
+          echo "Response body for debugging: $response_body"
           if echo "$response_body" | jq -e '.builds' >/dev/null 2>&1; then
-            experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id | split("/")[1]] | @json')
+            experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id] | @json')
           elif echo "$response_body" | jq -e '.run_id' >/dev/null 2>&1; then
-            experiment_ids=$(echo "$response_body" | jq -r '[.run_id | split("/")[1]] | @json')
+            experiment_ids=$(echo "$response_body" | jq -r '[.run_id] | @json')
           else
-            experiment_ids='[]'
+            # Fallback: try to extract any experiment-like ID from the response
+            if echo "$response_body" | jq -e '.experiment_id' >/dev/null 2>&1; then
+              experiment_ids=$(echo "$response_body" | jq -r '[.experiment_id] | @json')
+            else
+              experiment_ids='[]'
+            fi
           fi
           
           echo "experiment_ids=$experiment_ids" >> $GITHUB_OUTPUT
@@ -114,7 +120,21 @@ runs:
         echo "🔍 Monitoring build progress..."
         
         experiment_ids='${{ steps.build.outputs.experiment_ids }}'
-        experiments=($(echo "$experiment_ids" | jq -r '.[]'))
+        
+        # Debug the experiment_ids
+        echo "Experiment IDs received: $experiment_ids"
+        
+        if [[ "$experiment_ids" == "[]" || -z "$experiment_ids" ]]; then
+          # Fallback: use the original input experiment if no IDs were extracted
+          echo "No experiment IDs extracted, using input experiment"
+          if [[ '${{ inputs.experiments }}' =~ ^\[.*\]$ ]]; then
+            experiments=($(echo '${{ inputs.experiments }}' | jq -r '.[]'))
+          else
+            experiments=('${{ inputs.experiments }}')
+          fi
+        else
+          experiments=($(echo "$experiment_ids" | jq -r '.[]'))
+        fi
         
         if [[ ${#experiments[@]} -eq 0 ]]; then
           echo "⚠️ No experiments to monitor"
@@ -230,11 +250,11 @@ runs:
           --arg failed "$failed" \
           --argjson success "$overall_success" \
           '{
-            status: $status,
-            success: $success,
-            completed_count: ($completed | tonumber),
-            failed_count: ($failed | tonumber),
-            total_count: (($completed | tonumber) + ($failed | tonumber))
+            "status": $status,
+            "success": $success,
+            "completed_count": ($completed | tonumber),
+            "failed_count": ($failed | tonumber),
+            "total_count": (($completed | tonumber) + ($failed | tonumber))
           }')
         
         echo "results_summary=$summary" >> $GITHUB_OUTPUT
