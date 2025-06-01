@@ -71,6 +71,12 @@ runs:
           '{experiment: $experiment, api_keys: $api_keys}')
         
         echo "🚀 Starting Arato build..."
+
+        echo "Payload: $payload"
+        echo "Using API base URL: ${{ inputs.api_base_url }}"
+        echo "Using Arato API key: ${{ inputs.arato_api_key:0:2 }}***"  # Mask key for security
+        echo "Experiments to build: $experiments"
+        echo "API keys: $(echo '${{ inputs.api_keys }}' | jq -r 'keys[]')"
         
         # Make API call
         response=$(curl -s -w "\n%{http_code}" \
@@ -85,6 +91,14 @@ runs:
         response_body=$(echo "$response" | head -n -1)
         
         if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+          # Validate response is JSON before declaring success
+          if ! echo "$response_body" | jq empty 2>/dev/null; then
+            echo "❌ Build failed: API returned non-JSON response (likely authentication error)"
+            echo "Response body: $response_body"
+            echo "build_success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
           echo "✅ Build started successfully"
           echo "build_success=true" >> $GITHUB_OUTPUT
           
