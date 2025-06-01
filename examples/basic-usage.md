@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       experiment:
-        description: 'Experiment to build (format: flow_id/experiment_id)'
+        description: 'Experiment to build (format: flow-id/experiment-id)'
         required: true
         default: 'my-flow/my-experiment'
 
@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Build experiment
         id: arato-build
-        uses: AratoAi/arato@v1.0.0
+        uses: AratoAi/arato-github-actions@v0.0.1
         with:
           experiments: ${{ inputs.experiment }}
           api_keys: |

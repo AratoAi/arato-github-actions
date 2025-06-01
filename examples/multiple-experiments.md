@@ -21,14 +21,13 @@ jobs:
     steps:
       - name: Build experiments
         id: arato-build
-        uses: AratoAi/arato@v1.0.0
+        uses: AratoAi/arato-github-actions@v0.0.1
         with:
           experiments: ${{ inputs.experiments }}
           api_keys: |
             {
               "openai_api_key": "${{ secrets.OPENAI_API_KEY }}",
-              "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}",
-              "together_api_key": "${{ secrets.TOGETHER_API_KEY }}"
+              "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}"              
             }
           arato_api_key: ${{ secrets.ARATO_API_KEY }}
 
@@ -56,41 +55,7 @@ jobs:
           fi
 ```
 
-## Example Experiment Arrays
-
-### Simple List
-```json
-["customer-support/sentiment", "customer-support/classification"]
-```
-
-### Cross-Team Experiments
-```json
-[
-  "marketing/email-classification",
-  "support/ticket-routing",
-  "sales/lead-scoring"
-]
-```
-
-### Development vs Production
-```json
-[
-  "dev/model-v1",
-  "dev/model-v2",
-  "prod/current-model"
-]
-```
-
 ## Required Secrets
 
 - `ARATO_API_KEY` - Your Arato API key
-- `OPENAI_API_KEY` - OpenAI API key
-- `ANTHROPIC_API_KEY` - Anthropic API key
-- `TOGETHER_API_KEY` - Together AI API key
 
-## Tips
-
-1. **Start Small** - Test with 1-2 experiments first
-2. **Monitor Resources** - Large batches may take longer
-3. **Check Dependencies** - Ensure all experiments are ready to build
-4. **Use Parallel Builds** - The action monitors all experiments simultaneously
