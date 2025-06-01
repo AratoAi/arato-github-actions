@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       experiments:
-        description: 'Experiments to build (for example my-notebook-id'
+        description: 'Experiments to build (for example my-notebook-id')
         required: true
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Arato Build
-        uses: AratoAi/arato@v1.0.0
+        uses: AratoAi/arato-github-actions@v0.0.1
         with:
           experiments: ${{ inputs.experiments }}
           api_keys: |
@@ -103,7 +103,7 @@ jobs:
     steps:
       - name: Arato Build
         id: arato-build
-        uses: AratoAi/arato@v1.0.0
+        uses: AratoAi/arato-github-actions@v0.0.1
         with:
           experiments: '${{ inputs.experiments }}'
           api_keys: '${{ inputs.api_keys }}'
@@ -117,38 +117,6 @@ jobs:
           else
             echo "❌ Build failed. ${{ steps.arato-build.outputs.failed_count }} experiments failed."
           fi
-```
-
-## 📊 Monitoring & Reports
-
-### What You Get
-
-- **Real-time Progress** - See build status updates every 30 seconds
-- **Visual Summary** - Clear success/failure indicators in GitHub Actions UI
-- **Detailed Logs** - Complete build logs for debugging
-- **Downloadable Reports** - Artifact with full build details
-- **Timeout Protection** - Automatic timeout after 60 minutes
-
-### Sample Output
-
-```
-🚀 Starting Arato build...
-✅ Build started successfully
-Found experiments to monitor: ["exp123", "exp456"]
-
-🔍 Monitoring build progress...
-Monitoring 2 experiment(s)...
-🔄 Check 1/120
-  ⏳ exp123 still running
-  ⏳ exp456 still running
-🔄 Check 2/120
-  ✅ exp123 completed
-  ⏳ exp456 still running
-🔄 Check 3/120
-  ✅ exp456 completed
-🎉 All experiments finished!
-
-✅ Build Success: 2 completed, 0 failed
 ```
 
 ## 🚨 Troubleshooting
@@ -179,24 +147,16 @@ api_keys: '{openai_api_key: sk-...}'
 **Problem:** The build API didn't return any experiment IDs.
 
 **Solution:**
-1. Check your experiment IDs are in format `flow_id/experiment_id`
+1. Check your experiment IDs are in format `notebook-id/experiment-id` or `notebook-id`
 2. Verify the experiments exist in your Arato workspace
 3. Check the build API response for errors
 
-#### ⏰ "Builds taking too long"
-**Problem:** Experiments are still running after 60 minutes.
-
-**Solution:** This is normal for complex experiments. The workflow will:
-- Report current status
-- Mark incomplete experiments as "in progress"
-- You can check Arato UI for final results
 
 ### Getting Help
 
 1. **Check the logs** - GitHub Actions provides detailed execution logs
 2. **Verify inputs** - Ensure all required parameters are provided correctly
-3. **Test manually** - Try your API calls manually using curl or Postman
-4. **Check Arato status** - Verify your experiments in the Arato UI
+3. **Check Arato status** - Verify your experiments in the Arato UI
 
 ## 📚 More Examples
 
