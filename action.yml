@@ -102,15 +102,18 @@ runs:
           if echo "$response_body" | jq -e '.builds' >/dev/null 2>&1; then
             # Handle nested builds structure with steps
             if echo "$response_body" | jq -e '.builds[0].builds[0].steps' >/dev/null 2>&1; then
-              # Extract all step IDs from the nested structure
+              # Extract all step IDs from the nested structure recursively
               experiment_ids=$(echo "$response_body" | jq -r '
-                def extract_steps: 
-                  if type == "object" and has("step") then .step
-                  elif type == "object" and has("steps") then .steps[] | extract_steps
-                  elif type == "array" then .[] | extract_steps
-                  else empty
+                def extract_all_steps:
+                  if type == "object" then
+                    (if has("step") then [.step] else [] end) +
+                    (if has("steps") then [.steps[] | extract_all_steps] | flatten else [] end)
+                  elif type == "array" then
+                    [.[] | extract_all_steps] | flatten
+                  else
+                    []
                   end;
-                [.builds[].builds[].steps[] | extract_steps] | @json
+                [.builds[].builds[].steps[] | extract_all_steps] | flatten | @json
               ')
             # Handle simple builds structure: builds[].run_id
             elif echo "$response_body" | jq -e '.builds[0].run_id' >/dev/null 2>&1; then
@@ -199,7 +202,12 @@ runs:
               http_code=$(echo "$response" | tail -n1)
               response_body=$(echo "$response" | head -n -1)
               
-              if [[ "$http_code" == "200" ]] && echo "$response_body" | jq -e '. | length > 0' >/dev/null; then
+              # Debug: print the raw response
+              echo "  📋 Debug - API response for $exp:"
+              echo "  📋 HTTP Code: $http_code"
+              echo "  📋 Response Body: $response_body"
+              
+              if [[ "$http_code" == "200" ]] && echo "$response_body" | jq -e '. | length > 0' >/dev/null 2>&1; then
                 echo "  ✅ $exp completed"
                 status["$exp"]="completed"
                 results["$exp"]="$response_body"
