@@ -78,7 +78,7 @@ runs:
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
           -d "$payload" \
-          "${{ inputs.api_base_url }}/build")
+          "${{ inputs.api_base_url }}/api/build")
         
         # Parse response
         http_code=$(echo "$response" | tail -n1)
@@ -168,7 +168,7 @@ runs:
             if [[ "${status[$exp]}" == "running" ]]; then
               response=$(curl -s -w "\n%{http_code}" \
                 -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
-                "${{ inputs.api_base_url }}/build/$exp")
+                "${{ inputs.api_base_url }}/api/build/$exp")
               
               http_code=$(echo "$response" | tail -n1)
               response_body=$(echo "$response" | head -n -1)
