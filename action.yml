@@ -72,14 +72,6 @@ runs:
         
         echo "🚀 Starting Arato build..."
         
-        # Debug: Print the full curl command
-        echo "🔍 Full curl command:"
-        echo "curl -s -w \"\\n%{http_code}\" \\"
-        echo "  -X POST \\"
-        echo "  -H \"Content-Type: application/json\" \\"
-        echo "  -H \"Authorization: Bearer ${{ inputs.arato_api_key }}\" \\"
-        echo "  -d '$payload' \\"
-        echo "  \"${{ inputs.api_base_url }}/api/build\""
         
         # Make API call
         response=$(curl -s -w "\n%{http_code}" \
@@ -108,7 +100,15 @@ runs:
           # Extract experiment IDs for monitoring
           echo "Response body for debugging: $response_body"
           if echo "$response_body" | jq -e '.builds' >/dev/null 2>&1; then
-            experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id] | @json')
+            # Handle nested builds structure: builds[].builds[]
+            if echo "$response_body" | jq -e '.builds[0].builds' >/dev/null 2>&1; then
+              experiment_ids=$(echo "$response_body" | jq -r '[.builds[].builds[] | (.flow_id + "/" + (.run_number | tostring))] | @json')
+            # Handle simple builds structure: builds[].run_id
+            elif echo "$response_body" | jq -e '.builds[0].run_id' >/dev/null 2>&1; then
+              experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id] | @json')
+            else
+              experiment_ids='[]'
+            fi
           elif echo "$response_body" | jq -e '.run_id' >/dev/null 2>&1; then
             experiment_ids=$(echo "$response_body" | jq -r '[.run_id] | @json')
           else
