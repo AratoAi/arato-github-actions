@@ -100,9 +100,18 @@ runs:
           # Extract experiment IDs for monitoring
           echo "Response body for debugging: $response_body"
           if echo "$response_body" | jq -e '.builds' >/dev/null 2>&1; then
-            # Handle nested builds structure: builds[].builds[]
-            if echo "$response_body" | jq -e '.builds[0].builds' >/dev/null 2>&1; then
-              experiment_ids=$(echo "$response_body" | jq -r '[.builds[].builds[] | (.flow_id + "/" + (.run_number | tostring))] | @json')
+            # Handle nested builds structure with steps
+            if echo "$response_body" | jq -e '.builds[0].builds[0].steps' >/dev/null 2>&1; then
+              # Extract all step IDs from the nested structure
+              experiment_ids=$(echo "$response_body" | jq -r '
+                def extract_steps: 
+                  if type == "object" and has("step") then .step
+                  elif type == "object" and has("steps") then .steps[] | extract_steps
+                  elif type == "array" then .[] | extract_steps
+                  else empty
+                  end;
+                [.builds[].builds[].steps[] | extract_steps] | @json
+              ')
             # Handle simple builds structure: builds[].run_id
             elif echo "$response_body" | jq -e '.builds[0].run_id' >/dev/null 2>&1; then
               experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id] | @json')
@@ -185,7 +194,7 @@ runs:
             if [[ "${status[$exp]}" == "running" ]]; then
               response=$(curl -s -w "\n%{http_code}" \
                 -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
-                "${{ inputs.api_base_url }}/api/build/$exp")
+                "${{ inputs.api_base_url }}/api/$exp")
               
               http_code=$(echo "$response" | tail -n1)
               response_body=$(echo "$response" | head -n -1)
