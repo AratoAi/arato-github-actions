@@ -248,14 +248,13 @@ runs:
         echo "  completed=$completed"
         echo "  failed=$failed"
         
-        # Build results JSON safely
-        results_json=$(jq -n '{}')
-        for exp in "${experiments[@]}"; do
-          if [[ "${status[$exp]}" == "completed" ]]; then
-            # Safely add to JSON using jq
-            results_json=$(echo "$results_json" | jq --arg key "$exp" --argjson value "${results[$exp]}" '. + {($key): $value}')
-          fi
-        done
+        # Build results JSON safely - simplified approach
+        if [[ $completed -gt 0 ]]; then
+          # Create a simple results object
+          results_json='{"completed_experiments":'"$completed"'}'
+        else
+          results_json='{}'
+        fi
         
         echo "results=$results_json" >> $GITHUB_OUTPUT
 
@@ -298,11 +297,11 @@ runs:
           --arg failed "$failed" \
           --argjson success "$overall_success" \
           '{
-            status: $status,
-            success: $success,
-            completed_count: ($completed | tonumber),
-            failed_count: ($failed | tonumber),
-            total_count: (($completed | tonumber) + ($failed | tonumber))
+            "status": $status,
+            "success": $success,
+            "completed_count": ($completed | tonumber),
+            "failed_count": ($failed | tonumber),
+            "total_count": (($completed | tonumber) + ($failed | tonumber))
           }')
         
         echo "results_summary=$summary" >> $GITHUB_OUTPUT
