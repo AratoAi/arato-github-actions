@@ -197,13 +197,17 @@ runs:
         # Monitor loop
         for ((i=1; i<=max_iterations; i++)); do
           echo "🔄 Check $i/$max_iterations"
-          all_done=true
           
           for exp in "${experiments[@]}"; do
             if [[ "${status[$exp]}" == "running" ]]; then
+              echo "  📡 Checking status of $exp..."
+              
               response=$(curl -s -w "\n%{http_code}" \
                 -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
-                "${{ inputs.api_base_url }}/api/$exp")
+                "${{ inputs.api_base_url }}/api/$exp") || {
+                echo "  ⚠️ Curl failed for $exp, will retry"
+                continue
+              }
               
               http_code=$(echo "$response" | tail -n1)
               response_body=$(echo "$response" | head -n -1)
@@ -218,17 +222,30 @@ runs:
                 echo "  ✅ $exp completed"
                 status["$exp"]="completed"
                 results["$exp"]="$response_body"
-                ((completed++))
+                completed=$((completed + 1))
+                echo "  📊 Total completed: $completed"
               elif [[ "$http_code" =~ ^4[0-9][0-9]$ ]]; then
-                echo "  ❌ $exp failed"
+                echo "  ❌ $exp failed (HTTP $http_code)"
                 status["$exp"]="failed"
-                ((failed++))
+                failed=$((failed + 1))
+                echo "  📊 Total failed: $failed"
               else
-                echo "  ⏳ $exp still running"
-                all_done=false
+                echo "  ⏳ $exp still running (HTTP $http_code)"
               fi
             fi
           done
+          
+          # Check if all experiments are finished
+          all_done=true
+          running_count=0
+          for exp in "${experiments[@]}"; do
+            if [[ "${status[$exp]}" == "running" ]]; then
+              all_done=false
+              running_count=$((running_count + 1))
+            fi
+          done
+          
+          echo "  📊 Status: $completed completed, $failed failed, $running_count running"
           
           if [[ "$all_done" == "true" ]]; then
             echo "🎉 All experiments finished!"
@@ -236,18 +253,28 @@ runs:
           fi
           
           if [[ $i -lt $max_iterations ]]; then
+            echo "  ⏱️ Waiting ${polling_interval}s before next check..."
             sleep $polling_interval
           fi
         done
         
         echo "Final status: $completed completed, $failed failed"
-        echo "completed=$completed" >> $GITHUB_OUTPUT
-        echo "failed=$failed" >> $GITHUB_OUTPUT
+        
+        # Write outputs with explicit error handling
+        echo "🔍 Writing monitor step outputs..."
+        
+        echo "completed=$completed" >> $GITHUB_OUTPUT || {
+          echo "❌ Failed to write completed output"
+          exit 1
+        }
+        echo "failed=$failed" >> $GITHUB_OUTPUT || {
+          echo "❌ Failed to write failed output"
+          exit 1
+        }
         
         # Debug: Print what we're outputting
-        echo "🔍 Monitor step outputs:"
-        echo "  completed=$completed"
-        echo "  failed=$failed"
+        echo "  ✅ completed=$completed"
+        echo "  ✅ failed=$failed"
         
         # Build results JSON safely - simplified approach
         if [[ $completed -gt 0 ]]; then
@@ -257,7 +284,13 @@ runs:
           results_json='{}'
         fi
         
-        echo "results=$results_json" >> $GITHUB_OUTPUT
+        echo "results=$results_json" >> $GITHUB_OUTPUT || {
+          echo "❌ Failed to write results output"
+          exit 1
+        }
+        echo "  ✅ results=$results_json"
+        
+        echo "🎉 Monitor step completed successfully!"
 
     - name: Generate summary
       shell: bash
