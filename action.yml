@@ -381,13 +381,11 @@ runs:
           if [[ "$experiment_results" != "{}" ]]; then
             echo "🔍 Found experiment results to validate"
             
-            # Create temporary files to capture failures across subshell boundaries
-            temp_failures_file=$(mktemp)
-            temp_status_file=$(mktemp)
-            echo "true" > "$temp_status_file"
+            # Get experiment names as an array to avoid subshell issues
+            readarray -t exp_names < <(echo "$experiment_results" | jq -r 'keys[]')
             
             # Iterate through each experiment's results
-            echo "$experiment_results" | jq -r 'keys[]' | while IFS= read -r exp_name; do
+            for exp_name in "${exp_names[@]}"; do
               exp_data=$(echo "$experiment_results" | jq -r --arg exp "$exp_name" '.[$exp]')
               
               echo "🧪 Validating thresholds for experiment: $exp_name"
@@ -399,14 +397,17 @@ runs:
                 # Check total_validations_pass_percentage
                 pass_percentage_data=$(echo "$exp_data" | jq -r '.total_validations_pass_percentage // {}')
                 if [[ "$pass_percentage_data" != "{}" ]]; then
+                  # Get validation types as an array
+                  readarray -t validation_types < <(echo "$pass_percentage_data" | jq -r 'keys[]')
+                  
                   # Check each validation type
-                  echo "$pass_percentage_data" | jq -r 'keys[]' | while IFS= read -r validation_type; do
+                  for validation_type in "${validation_types[@]}"; do
                     pass_rate=$(echo "$pass_percentage_data" | jq -r --arg type "$validation_type" '.[$type]')
                     
                     if (( $(echo "$pass_rate < $eval_pass_rate_threshold" | bc -l) )); then
                       failure_msg="eval_pass_rate: $validation_type ($pass_rate) below threshold ($eval_pass_rate_threshold) in experiment $exp_name"
-                      echo "$failure_msg" >> "$temp_failures_file"
-                      echo "false" > "$temp_status_file"
+                      failures+=("$failure_msg")
+                      threshold_passed=false
                       echo "    ❌ $failure_msg"
                     else
                       echo "    ✅ $validation_type: $pass_rate >= $eval_pass_rate_threshold"
@@ -424,8 +425,8 @@ runs:
                 
                 if [[ "$cost_value" != "0" ]] && (( $(echo "$cost_value > $cost_threshold" | bc -l) )); then
                   failure_msg="cost: $cost_value above threshold ($cost_threshold) in experiment $exp_name"
-                  echo "$failure_msg" >> "$temp_failures_file"
-                  echo "false" > "$temp_status_file"
+                  failures+=("$failure_msg")
+                  threshold_passed=false
                   echo "    ❌ $failure_msg"
                 else
                   echo "    ✅ cost: $cost_value <= $cost_threshold (or cost is 0, skipped)"
@@ -439,8 +440,8 @@ runs:
                 
                 if (( $(echo "$ttft_value > $latency_threshold" | bc -l) )); then
                   failure_msg="latency: $ttft_value ms above threshold ($latency_threshold ms) in experiment $exp_name"
-                  echo "$failure_msg" >> "$temp_failures_file"
-                  echo "false" > "$temp_status_file"
+                  failures+=("$failure_msg")
+                  threshold_passed=false
                   echo "    ❌ $failure_msg"
                 else
                   echo "    ✅ latency: $ttft_value ms <= $latency_threshold ms"
@@ -454,8 +455,8 @@ runs:
                 
                 if (( $(echo "$tokens_value > $tokens_threshold" | bc -l) )); then
                   failure_msg="tokens: $tokens_value above threshold ($tokens_threshold) in experiment $exp_name"
-                  echo "$failure_msg" >> "$temp_failures_file"
-                  echo "false" > "$temp_status_file"
+                  failures+=("$failure_msg")
+                  threshold_passed=false
                   echo "    ❌ $failure_msg"
                 else
                   echo "    ✅ tokens: $tokens_value <= $tokens_threshold"
@@ -469,8 +470,8 @@ runs:
                 
                 if [[ "$similarity_value" != "-1" ]] && (( $(echo "$similarity_value < $semantic_similarity_threshold" | bc -l) )); then
                   failure_msg="semantic_similarity: $similarity_value below threshold ($semantic_similarity_threshold) in experiment $exp_name"
-                  echo "$failure_msg" >> "$temp_failures_file"
-                  echo "false" > "$temp_status_file"
+                  failures+=("$failure_msg")
+                  threshold_passed=false
                   echo "    ❌ $failure_msg"
                 elif [[ "$similarity_value" == "-1" ]]; then
                   echo "    ⚠️ semantic_similarity: no data available (-1), skipping validation"
@@ -479,17 +480,6 @@ runs:
                 fi
               fi
             done
-            
-            # Read back the results from temporary files
-            threshold_passed=$(cat "$temp_status_file")
-            if [[ -f "$temp_failures_file" ]]; then
-              while IFS= read -r line; do
-                [[ -n "$line" ]] && failures+=("$line")
-              done < "$temp_failures_file"
-            fi
-            
-            # Clean up temporary files
-            rm -f "$temp_failures_file" "$temp_status_file"
           else
             echo "⚠️ No experiment results found in results object"
           fi
@@ -498,17 +488,27 @@ runs:
           echo "ℹ️ Threshold validation will be skipped for this run"
         fi
         
-        # Convert failures array to JSON
+        # Convert failures array to JSON and set output based on current threshold_passed state
         if [[ ${#failures[@]} -eq 0 ]]; then
           failures_json="[]"
-          echo "threshold_passed=true" >> $GITHUB_OUTPUT
         else
-          failures_json=$(printf '%s\n' "${failures[@]}" | jq -R . | jq -s .)
-          threshold_passed=false
-          echo "threshold_passed=false" >> $GITHUB_OUTPUT
+          failures_json=$(printf '%s\n' "${failures[@]}" | jq -R . | jq -s .) || {
+            echo "⚠️ Warning: Failed to create failures JSON, using empty array"
+            failures_json="[]"
+          }
         fi
         
-        echo "threshold_failures=$failures_json" >> $GITHUB_OUTPUT
+        # Output threshold validation result
+        echo "threshold_passed=$threshold_passed" >> $GITHUB_OUTPUT
+        
+        # Validate the JSON before outputting it
+        if echo "$failures_json" | jq empty 2>/dev/null; then
+          echo "threshold_failures=$failures_json" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️ Warning: threshold_failures JSON is invalid, using empty array"
+          echo "threshold_failures=[]" >> $GITHUB_OUTPUT
+          failures_json="[]"
+        fi
         
         echo "🎯 Threshold validation completed"
         echo "  Passed: $threshold_passed"
@@ -560,14 +560,28 @@ runs:
         echo "threshold_failures=$threshold_failures" >> $GITHUB_OUTPUT
         
         # Create summary JSON with proper escaping
+        # Use --arg for threshold_failures and parse it as JSON within jq to avoid shell escaping issues
+        echo "🔍 Debug: threshold_failures value: $threshold_failures"
+        
+        # Validate threshold_failures JSON before using it
+        if echo "$threshold_failures" | jq empty 2>/dev/null; then
+          threshold_failures_validated="$threshold_failures"
+        else
+          echo "⚠️ Warning: Invalid threshold_failures JSON, using empty array"
+          threshold_failures_validated="[]"
+        fi
+        
         summary=$(jq -nc \
           --arg status "$status_text" \
           --arg completed "$completed" \
           --arg failed "$failed" \
           --argjson success "$overall_success" \
           --argjson threshold_passed "$threshold_passed" \
-          --argjson threshold_failures "$threshold_failures" \
-          '{"status": $status, "success": $success, "completed_count": ($completed | tonumber), "failed_count": ($failed | tonumber), "total_count": (($completed | tonumber) + ($failed | tonumber)), "threshold_passed": $threshold_passed, "threshold_failures": $threshold_failures}')
+          --arg threshold_failures_raw "$threshold_failures_validated" \
+          '{"status": $status, "success": $success, "completed_count": ($completed | tonumber), "failed_count": ($failed | tonumber), "total_count": (($completed | tonumber) + ($failed | tonumber)), "threshold_passed": $threshold_passed, "threshold_failures": ($threshold_failures_raw | fromjson)}') || {
+          echo "❌ Failed to create summary JSON, creating fallback summary"
+          summary='{"status": "'"$status_text"'", "success": '"$overall_success"', "completed_count": '"$completed"', "failed_count": '"$failed"', "total_count": '$((completed + failed))', "threshold_passed": '"$threshold_passed"', "threshold_failures": []}'
+        }
         
         echo "results_summary=$summary" >> $GITHUB_OUTPUT
         
