@@ -544,7 +544,7 @@ runs:
         threshold_passed="${{ steps.validate_thresholds.outputs.threshold_passed || 'true' }}"
         
         # Use printf to safely assign threshold_failures without shell interpretation
-        threshold_failures=$(printf '%s' '${{ steps.validate_thresholds.outputs.threshold_failures || ''[]'' }}')
+        threshold_failures=$(printf '%s' '${{ steps.validate_thresholds.outputs.threshold_failures || '\''[]'\'' }}')
         
         # Debug: Print what values we received
         echo "🔍 Summary step inputs:"
