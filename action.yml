@@ -586,14 +586,17 @@ runs:
         | ❌ Failed | $failed |
         | 📊 Total | $((completed + failed)) |
         
-        ### Performance Thresholds
-        | Status | Result |
-        |--------|--------|
-        | 🎯 Threshold Validation | $(if [[ "$threshold_passed" == "true" ]]; then echo "✅ Passed"; else echo "❌ Failed"; fi) |
-        
-        $(if [[ "$threshold_passed" == "false" && "$threshold_failures" != "[]" ]]; then
-          echo "### ⚠️ Threshold Failures"
-          echo "$threshold_failures" | jq -r '.[] | "- " + .'
+        $(if [[ -n '${{ inputs.threshold }}' ]]; then
+          echo "### Performance Thresholds"
+          echo "| Status | Result |"
+          echo "|--------|--------|"
+          echo "| 🎯 Threshold Validation | $(if [[ "$threshold_passed" == "true" ]]; then echo "✅ Passed"; else echo "❌ Failed"; fi) |"
+          echo ""
+          if [[ "$threshold_passed" == "false" && "$threshold_failures" != "[]" ]]; then
+            echo "### ⚠️ Threshold Failures"
+            echo "$threshold_failures" | jq -r '.[] | "- " + .'
+            echo ""
+          fi
         fi)
         
         ### Build Details
