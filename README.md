@@ -266,4 +266,4 @@ Check the [examples/](examples/) directory for complete workflow templates:
 
 ---
 
-**Made with ❤️ for AI builders using Arato**
+**Made with ❤️ by Arato for AI builders**
