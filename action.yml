@@ -673,4 +673,16 @@ runs:
         echo "🎯 Overall Success: $overall_success"
         echo "════════════════════════════════════════"
         
+        # Exit with appropriate code to set GitHub Actions job status
+        if [[ "$overall_success" == "false" ]]; then
+          echo ""
+          echo "❌ Build failed due to threshold violations or experiment failures"
+          echo "   GitHub Actions job will be marked as FAILED"
+          exit 1
+        else
+          echo ""
+          echo "✅ Build completed successfully"
+          echo "   GitHub Actions job will be marked as SUCCESS"
+        fi
+        
 
