@@ -218,12 +218,17 @@ runs:
               echo "  📋 Response Body: $response_body"
               
               if [[ "$http_code" == "200" ]] && [[ -n "$response_body" ]] && echo "$response_body" | jq empty >/dev/null 2>&1; then
-                # Valid JSON response with 200 status means completed
-                echo "  ✅ $exp completed"
-                status["$exp"]="completed"
-                results["$exp"]="$response_body"
-                completed=$((completed + 1))
-                echo "  📊 Total completed: $completed"
+                # Check if response is not empty JSON (empty {} means still running)
+                if [[ "$response_body" == "{}" ]] || [[ "$(echo "$response_body" | jq 'length')" == "0" ]]; then
+                  echo "  ⏳ $exp still running (empty response)"
+                else
+                  # Valid JSON response with content means completed
+                  echo "  ✅ $exp completed"
+                  status["$exp"]="completed"
+                  results["$exp"]="$response_body"
+                  completed=$((completed + 1))
+                  echo "  📊 Total completed: $completed"
+                fi
               elif [[ "$http_code" =~ ^4[0-9][0-9]$ ]]; then
                 echo "  ❌ $exp failed (HTTP $http_code)"
                 status["$exp"]="failed"
