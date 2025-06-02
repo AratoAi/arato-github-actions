@@ -338,17 +338,13 @@ runs:
         cat >> $GITHUB_STEP_SUMMARY << EOF
 # $status_emoji Arato Build Report
 
-**Status:** $status_text  
-**Experiments:** \${{ inputs.experiments }}  
-**Completed:** $completed  
-**Failed:** $failed  
-
-## Configuration
-- **API Endpoint:** \`\${{ inputs.api_base_url }}\`
-- **Monitoring:** 30-second polling, 60-minute timeout
+**Status:** ${{ status_text }}  
+**Experiments:** ${{ inputs.experiments }}  
+**Completed:** ${{ completed }}  
+**Failed:** ${{ failed }}  
 
 ---
 _Build completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')_
-EOF
-        
+EOF        
         echo "$status_emoji Build $status_text: $completed completed, $failed failed"
+
