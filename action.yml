@@ -213,7 +213,8 @@ runs:
               echo "  📋 HTTP Code: $http_code"
               echo "  📋 Response Body: $response_body"
               
-              if [[ "$http_code" == "200" ]] && echo "$response_body" | jq -e '. | length > 0' >/dev/null 2>&1; then
+              if [[ "$http_code" == "200" ]] && [[ -n "$response_body" ]] && echo "$response_body" | jq empty >/dev/null 2>&1; then
+                # Valid JSON response with 200 status means completed
                 echo "  ✅ $exp completed"
                 status["$exp"]="completed"
                 results["$exp"]="$response_body"
