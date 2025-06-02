@@ -175,6 +175,12 @@ runs:
         
         echo "Monitoring ${#experiments[@]} experiment(s)..."
         
+        # Debug: Print the experiments we're monitoring
+        echo "🔍 Experiments to monitor:"
+        for exp in "${experiments[@]}"; do
+          echo "  - $exp"
+        done
+        
         # Track progress
         declare -A status
         declare -A results
@@ -237,6 +243,11 @@ runs:
         echo "completed=$completed" >> $GITHUB_OUTPUT
         echo "failed=$failed" >> $GITHUB_OUTPUT
         
+        # Debug: Print what we're outputting
+        echo "🔍 Monitor step outputs:"
+        echo "  completed=$completed"
+        echo "  failed=$failed"
+        
         # Build results JSON
         results_json="{"
         first=true
@@ -261,6 +272,12 @@ runs:
         build_success="${{ steps.build.outputs.build_success || 'false' }}"
         completed="${{ steps.monitor.outputs.completed || '0' }}"
         failed="${{ steps.monitor.outputs.failed || '0' }}"
+        
+        # Debug: Print what values we received
+        echo "🔍 Summary step inputs:"
+        echo "  build_success=$build_success"
+        echo "  completed=$completed"
+        echo "  failed=$failed"
         
         # Determine overall success
         if [[ "$build_success" == "true" && "$failed" == "0" && "$completed" -gt 0 ]]; then
