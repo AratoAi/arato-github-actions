@@ -550,7 +550,7 @@ runs:
         echo "  completed=$completed"
         echo "  failed=$failed"
         echo "  threshold_passed=$threshold_passed"
-        echo "  threshold_failures preview: ${threshold_failures:0:200}..."
+        echo "  threshold_failures preview: $(echo "$threshold_failures" | head -c 200)..."
         
         # Determine overall success
         if [[ "$build_success" == "true" && "$failed" == "0" && "$completed" -gt 0 && "$threshold_passed" == "true" ]]; then
