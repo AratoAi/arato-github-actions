@@ -543,11 +543,8 @@ runs:
         failed="${{ steps.monitor.outputs.failed || '0' }}"
         threshold_passed="${{ steps.validate_thresholds.outputs.threshold_passed || 'true' }}"
         
-        # Read threshold_failures safely using a temporary file to avoid shell parsing issues
-        threshold_failures_file=$(mktemp)
-        echo '${{ steps.validate_thresholds.outputs.threshold_failures || "[]" }}' > "$threshold_failures_file"
-        threshold_failures=$(cat "$threshold_failures_file")
-        rm "$threshold_failures_file"
+        # Use printf to safely assign threshold_failures without shell interpretation
+        threshold_failures=$(printf '%s' '${{ steps.validate_thresholds.outputs.threshold_failures || ''[]'' }}')
         
         # Debug: Print what values we received
         echo "🔍 Summary step inputs:"
