@@ -550,7 +550,6 @@ runs:
         echo "  completed=$completed"
         echo "  failed=$failed"
         echo "  threshold_passed=$threshold_passed"
-        echo "  threshold_failures length: ${#threshold_failures}"
         echo "  threshold_failures preview: ${threshold_failures:0:200}..."
         
         # Determine overall success
