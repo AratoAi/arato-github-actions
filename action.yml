@@ -492,18 +492,35 @@ runs:
         if [[ ${#failures[@]} -eq 0 ]]; then
           failures_json="[]"
         else
-          failures_json=$(printf '%s\n' "${failures[@]}" | jq -R . | jq -s .) || {
+          # Create compact JSON (single line) to avoid GitHub Actions output issues
+          # Use a more robust approach to handle the array properly
+          failures_json=""
+          for failure in "${failures[@]}"; do
+            if [[ -z "$failures_json" ]]; then
+              failures_json="[\"$(echo "$failure" | sed 's/"/\\"/g')\""
+            else
+              failures_json="$failures_json,\"$(echo "$failure" | sed 's/"/\\"/g')\""
+            fi
+          done
+          failures_json="$failures_json]"
+          
+          # Validate the constructed JSON
+          if ! echo "$failures_json" | jq empty 2>/dev/null; then
             echo "⚠️ Warning: Failed to create failures JSON, using empty array"
             failures_json="[]"
-          }
+          fi
         fi
         
         # Output threshold validation result
         echo "threshold_passed=$threshold_passed" >> $GITHUB_OUTPUT
         
+        # Debug: Show what we're about to output
+        echo "🔍 Debug: threshold_failures value: $failures_json"
+        
         # Validate the JSON before outputting it
         if echo "$failures_json" | jq empty 2>/dev/null; then
           echo "threshold_failures=$failures_json" >> $GITHUB_OUTPUT
+          echo "✅ Successfully wrote threshold_failures to output"
         else
           echo "⚠️ Warning: threshold_failures JSON is invalid, using empty array"
           echo "threshold_failures=[]" >> $GITHUB_OUTPUT
@@ -533,7 +550,8 @@ runs:
         echo "  completed=$completed"
         echo "  failed=$failed"
         echo "  threshold_passed=$threshold_passed"
-        echo "  threshold_failures=$threshold_failures"
+        echo "  threshold_failures length: ${#threshold_failures}"
+        echo "  threshold_failures preview: ${threshold_failures:0:200}..."
         
         # Determine overall success
         if [[ "$build_success" == "true" && "$failed" == "0" && "$completed" -gt 0 && "$threshold_passed" == "true" ]]; then
@@ -606,9 +624,9 @@ runs:
           echo "|--------|--------|"
           echo "| 🎯 Threshold Validation | $(if [[ "$threshold_passed" == "true" ]]; then echo "✅ Passed"; else echo "❌ Failed"; fi) |"
           echo ""
-          if [[ "$threshold_passed" == "false" && "$threshold_failures" != "[]" ]]; then
+          if [[ "$threshold_passed" == "false" && "$threshold_failures_validated" != "[]" ]]; then
             echo "### ⚠️ Threshold Failures"
-            echo "$threshold_failures" | jq -r '.[] | "- " + .'
+            echo "$threshold_failures_validated" | jq -r '.[] | "- " + .'
             echo ""
           fi
         fi)
@@ -643,9 +661,9 @@ runs:
         echo "❌ Failed: $failed"
         echo "📊 Total: $((completed + failed))"
         echo "🎯 Thresholds Passed: $threshold_passed"
-        if [[ "$threshold_passed" == "false" && "$threshold_failures" != "[]" ]]; then
+        if [[ "$threshold_passed" == "false" && "$threshold_failures_validated" != "[]" ]]; then
           echo "⚠️  Threshold Failures:"
-          echo "$threshold_failures" | jq -r '.[] | "   - " + .'
+          echo "$threshold_failures_validated" | jq -r '.[] | "   - " + .'
         fi
         echo "🎯 Overall Success: $overall_success"
         echo "════════════════════════════════════════"
