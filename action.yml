@@ -601,19 +601,13 @@ runs:
         
         ### Build Details
         - **Overall Success**: $overall_success
-        - **API Base URL**: ${{ inputs.api_base_url }}
         - **Build Triggered**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
         $(if [[ -n '${{ inputs.threshold }}' ]]; then
           echo "- **Thresholds Configured**: Yes"
         else
           echo "- **Thresholds Configured**: No"
         fi)
-        
-        ### Experiment Configuration
-        \`\`\`json
-        ${{ inputs.experiments }}
-        \`\`\`
-        
+                
         $(if [[ -n '${{ inputs.threshold }}' ]]; then
           echo "### Threshold Configuration"
           echo "\`\`\`json"
