@@ -62,15 +62,18 @@ In this example we're using OpenAI and Anthropic but you can use whatever vendor
 | `experiments` | ✅ Yes | - | Single experiment string or an array of experiments |
 | `api_keys` | ✅ Yes | - | JSON object with your AI model API keys |
 | `api_base_url` | ❌ No | `https://api.arato.ai` | Arato API endpoint |
+| `arato_api_key` | ✅ Yes | - | Your Arato API key (starts with "ar-") |
+| `threshold` | ❌ No | - | JSON object with performance thresholds for automatic validation |
 
 ### Outputs
 
 | Output | Type | Description |
 |--------|------|-------------|
-| `success` | boolean | Whether all builds completed successfully |
+| `success` | boolean | Whether all builds completed successfully and passed thresholds |
 | `completed_count` | number | Number of successful experiments |
 | `failed_count` | number | Number of failed experiments |
-| `results_summary` | JSON | Detailed build results |
+| `results_summary` | JSON | Detailed build results including threshold validation |
+| `threshold_failures` | JSON | Array of threshold validation failures (if any) |
 
 ## 💡 Usage Examples
 
@@ -119,6 +122,74 @@ jobs:
           fi
 ```
 
+### With Performance Thresholds
+
+```yaml
+with:
+  experiments: '["quality-check", "performance-test"]'
+  api_keys: |
+    {
+      "openai_api_key": "${{ secrets.OPENAI_API_KEY }}",
+      "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}"
+    }
+  arato_api_key: ${{ secrets.ARATO_API_KEY }}
+  threshold: |
+    {
+      "eval_pass_rate": 0.8,
+      "cost": 0.01,
+      "latency": 3000,
+      "tokens": 100,
+      "semantic_similarity": 0.7
+    }
+```
+
+### Quality Gate for Production
+
+```yaml
+- name: Production Quality Gate
+  uses: AratoAi/arato-github-actions@v0.0.1
+  with:
+    experiments: ${{ inputs.production_experiments }}
+    api_keys: ${{ secrets.API_KEYS }}
+    arato_api_key: ${{ secrets.ARATO_API_KEY }}
+    threshold: |
+      {
+        "eval_pass_rate": 0.95,
+        "cost": 0.005,
+        "latency": 2000,
+        "semantic_similarity": 0.85
+      }
+```
+
+## 🎯 Performance Thresholds
+
+The action supports automatic validation of experiment results against configurable performance thresholds. When thresholds are provided, builds will fail if any metrics don't meet your requirements.
+
+### Supported Thresholds
+
+| Threshold | Description | Failure Condition |
+|-----------|-------------|-------------------|
+| `eval_pass_rate` | Minimum evaluation pass rate (0.0-1.0) | Any validation type below threshold |
+| `cost` | Maximum cost per experiment | Cost exceeds threshold (skipped if 0) |
+| `latency` | Maximum time-to-first-token (ms) | Latency exceeds threshold |
+| `tokens` | Maximum token count | Token count exceeds threshold |
+| `semantic_similarity` | Minimum similarity score (-1.0-1.0) | Similarity below threshold (skipped if -1) |
+
+### Example Threshold Configuration
+
+```yaml
+threshold: |
+  {
+    "eval_pass_rate": 0.8,
+    "cost": 0.01,
+    "latency": 3000,
+    "tokens": 100,
+    "semantic_similarity": 0.7
+  }
+```
+
+For detailed examples and best practices, see [examples/threshold-validation.md](examples/threshold-validation.md).
+
 ## 🚨 Troubleshooting
 
 ### Common Issues
@@ -151,6 +222,27 @@ api_keys: '{openai_api_key: sk-...}'
 2. Verify the experiments exist in your Arato workspace
 3. Check the build API response for errors
 
+#### ❌ "Invalid JSON format for threshold"
+**Problem:** Your `threshold` parameter is not valid JSON.
+
+**Solution:** Ensure proper JSON formatting:
+```yaml
+# ✅ Correct
+threshold: '{"eval_pass_rate": 0.8, "cost": 0.01}'
+
+# ❌ Wrong
+threshold: '{eval_pass_rate: 0.8, cost: 0.01}'
+```
+
+#### ❌ Build fails due to threshold violations
+**Problem:** One or more performance metrics don't meet your thresholds.
+
+**Solution:**
+1. Check the detailed failure report in the build summary
+2. Review individual experiment results
+3. Adjust thresholds if they're too strict for your use case
+4. Investigate performance issues in failing experiments
+
 
 ### Getting Help
 
@@ -161,6 +253,10 @@ api_keys: '{openai_api_key: sk-...}'
 ## 📚 More Examples
 
 Check the [examples/](examples/) directory for complete workflow templates:
+
+- [Basic Usage](examples/basic-usage.md) - Simple single experiment builds
+- [Multiple Experiments](examples/multiple-experiments.md) - Building multiple experiments in parallel  
+- [Threshold Validation](examples/threshold-validation.md) - Performance thresholds and quality gates
 
 ## 🤝 Support
 

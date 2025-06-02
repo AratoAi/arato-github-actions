@@ -20,6 +20,9 @@ inputs:
   arato_api_key:
     description: 'Your Arato API key (starts with "ar-")'
     required: true
+  threshold:
+    description: 'Optional threshold configuration as JSON object with numeric values for performance metrics (e.g., {"eval_pass_rate": 0.8, "cost": 0.01, "latency": 3000, "tokens": 100, "semantic_similarity": 0.7})'
+    required: false
 
 outputs:
   success:
@@ -34,6 +37,9 @@ outputs:
   results_summary:
     description: 'Summary of build results as JSON'
     value: ${{ steps.summary.outputs.results_summary }}
+  threshold_failures:
+    description: 'List of threshold validation failures'
+    value: ${{ steps.summary.outputs.threshold_failures }}
 
 runs:
   using: 'composite'
@@ -52,6 +58,14 @@ runs:
         # Validate API keys format
         echo '${{ inputs.api_keys }}' | jq empty || (echo "❌ Invalid JSON format for API keys" && exit 1)
         echo "✓ API keys format validated"
+        
+        # Validate threshold format if provided
+        if [[ -n '${{ inputs.threshold }}' ]]; then
+          echo '${{ inputs.threshold }}' | jq empty || (echo "❌ Invalid JSON format for threshold" && exit 1)
+          echo "✓ Threshold format validated"
+        else
+          echo "✓ No threshold provided"
+        fi
 
     - name: Trigger Arato build
       shell: bash
@@ -281,10 +295,30 @@ runs:
         echo "  ✅ completed=$completed"
         echo "  ✅ failed=$failed"
         
-        # Build results JSON safely - simplified approach
+        # Build results JSON safely - collect actual experiment results
         if [[ $completed -gt 0 ]]; then
-          # Create a simple results object
-          results_json='{"completed_experiments":'"$completed"'}'
+          # Create a comprehensive results object with actual experiment data
+          results_json="{"
+          results_json+='"completed_experiments":'"$completed"','
+          results_json+='"experiment_results":{'
+          
+          first=true
+          for exp in "${experiments[@]}"; do
+            if [[ "${status[$exp]}" == "completed" ]]; then
+              if [[ "$first" == "false" ]]; then
+                results_json+=','
+              fi
+              # Escape the experiment name and add its results
+              exp_key=$(echo "$exp" | sed 's/"/\\"/g')
+              exp_results="${results[$exp]}"
+              # Safely escape the JSON value
+              exp_results_escaped=$(echo "$exp_results" | sed 's/"/\\"/g' | tr -d '\n' | tr -d '\r')
+              results_json+='"'"$exp_key"'":'"$exp_results"
+              first=false
+            fi
+          done
+          
+          results_json+='}}'
         else
           results_json='{}'
         fi
@@ -297,6 +331,189 @@ runs:
         
         echo "🎉 Monitor step completed successfully!"
 
+    - name: Validate thresholds
+      shell: bash
+      id: validate_thresholds
+      if: always() && steps.monitor.outputs.completed > 0
+      run: |
+        echo "🎯 Validating performance thresholds..."
+        
+        # Check if thresholds are provided
+        if [[ -z '${{ inputs.threshold }}' ]]; then
+          echo "✓ No thresholds provided, skipping validation"
+          echo "threshold_passed=true" >> $GITHUB_OUTPUT
+          echo "threshold_failures=[]" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        threshold_config='${{ inputs.threshold }}'
+        echo "🔍 Threshold configuration: $threshold_config"
+        
+        # Get results from monitor step
+        results='${{ steps.monitor.outputs.results }}'
+        echo "🔍 Results to validate: $results"
+        
+        # Initialize failure tracking
+        failures=()
+        threshold_passed=true
+        
+        # Parse threshold values
+        eval_pass_rate_threshold=$(echo "$threshold_config" | jq -r '.eval_pass_rate // empty')
+        cost_threshold=$(echo "$threshold_config" | jq -r '.cost // empty')
+        latency_threshold=$(echo "$threshold_config" | jq -r '.latency // empty')
+        tokens_threshold=$(echo "$threshold_config" | jq -r '.tokens // empty')
+        semantic_similarity_threshold=$(echo "$threshold_config" | jq -r '.semantic_similarity // empty')
+        
+        echo "🎯 Parsed thresholds:"
+        echo "  eval_pass_rate: $eval_pass_rate_threshold"
+        echo "  cost: $cost_threshold"
+        echo "  latency: $latency_threshold"
+        echo "  tokens: $tokens_threshold"
+        echo "  semantic_similarity: $semantic_similarity_threshold"
+        
+        # Parse and validate actual experiment results
+        if [[ "$results" != "{}" && -n "$results" ]]; then
+          echo "📊 Validating against actual results..."
+          
+          # Extract experiment results
+          experiment_results=$(echo "$results" | jq -r '.experiment_results // {}')
+          
+          if [[ "$experiment_results" != "{}" ]]; then
+            echo "🔍 Found experiment results to validate"
+            
+            # Create temporary files to capture failures across subshell boundaries
+            temp_failures_file=$(mktemp)
+            temp_status_file=$(mktemp)
+            echo "true" > "$temp_status_file"
+            
+            # Iterate through each experiment's results
+            echo "$experiment_results" | jq -r 'keys[]' | while IFS= read -r exp_name; do
+              exp_data=$(echo "$experiment_results" | jq -r --arg exp "$exp_name" '.[$exp]')
+              
+              echo "🧪 Validating thresholds for experiment: $exp_name"
+              
+              # Validate eval_pass_rate if threshold provided
+              if [[ -n "$eval_pass_rate_threshold" ]]; then
+                echo "  🔍 Checking eval_pass_rate threshold: $eval_pass_rate_threshold"
+                
+                # Check total_validations_pass_percentage
+                pass_percentage_data=$(echo "$exp_data" | jq -r '.total_validations_pass_percentage // {}')
+                if [[ "$pass_percentage_data" != "{}" ]]; then
+                  # Check each validation type
+                  echo "$pass_percentage_data" | jq -r 'keys[]' | while IFS= read -r validation_type; do
+                    pass_rate=$(echo "$pass_percentage_data" | jq -r --arg type "$validation_type" '.[$type]')
+                    
+                    if (( $(echo "$pass_rate < $eval_pass_rate_threshold" | bc -l) )); then
+                      failure_msg="eval_pass_rate: $validation_type ($pass_rate) below threshold ($eval_pass_rate_threshold) in experiment $exp_name"
+                      echo "$failure_msg" >> "$temp_failures_file"
+                      echo "false" > "$temp_status_file"
+                      echo "    ❌ $failure_msg"
+                    else
+                      echo "    ✅ $validation_type: $pass_rate >= $eval_pass_rate_threshold"
+                    fi
+                  done
+                else
+                  echo "    ⚠️ No eval pass rate data found in experiment results"
+                fi
+              fi
+              
+              # Validate cost if threshold provided
+              if [[ -n "$cost_threshold" ]]; then
+                echo "  🔍 Checking cost threshold: $cost_threshold"
+                cost_value=$(echo "$exp_data" | jq -r '.cost // 0')
+                
+                if [[ "$cost_value" != "0" ]] && (( $(echo "$cost_value > $cost_threshold" | bc -l) )); then
+                  failure_msg="cost: $cost_value above threshold ($cost_threshold) in experiment $exp_name"
+                  echo "$failure_msg" >> "$temp_failures_file"
+                  echo "false" > "$temp_status_file"
+                  echo "    ❌ $failure_msg"
+                else
+                  echo "    ✅ cost: $cost_value <= $cost_threshold (or cost is 0, skipped)"
+                fi
+              fi
+              
+              # Validate latency if threshold provided
+              if [[ -n "$latency_threshold" ]]; then
+                echo "  🔍 Checking latency threshold: $latency_threshold"
+                ttft_value=$(echo "$exp_data" | jq -r '.ttft // 0')
+                
+                if (( $(echo "$ttft_value > $latency_threshold" | bc -l) )); then
+                  failure_msg="latency: $ttft_value ms above threshold ($latency_threshold ms) in experiment $exp_name"
+                  echo "$failure_msg" >> "$temp_failures_file"
+                  echo "false" > "$temp_status_file"
+                  echo "    ❌ $failure_msg"
+                else
+                  echo "    ✅ latency: $ttft_value ms <= $latency_threshold ms"
+                fi
+              fi
+              
+              # Validate tokens if threshold provided
+              if [[ -n "$tokens_threshold" ]]; then
+                echo "  🔍 Checking tokens threshold: $tokens_threshold"
+                tokens_value=$(echo "$exp_data" | jq -r '.tokens // 0')
+                
+                if (( $(echo "$tokens_value > $tokens_threshold" | bc -l) )); then
+                  failure_msg="tokens: $tokens_value above threshold ($tokens_threshold) in experiment $exp_name"
+                  echo "$failure_msg" >> "$temp_failures_file"
+                  echo "false" > "$temp_status_file"
+                  echo "    ❌ $failure_msg"
+                else
+                  echo "    ✅ tokens: $tokens_value <= $tokens_threshold"
+                fi
+              fi
+              
+              # Validate semantic_similarity if threshold provided
+              if [[ -n "$semantic_similarity_threshold" ]]; then
+                echo "  🔍 Checking semantic_similarity threshold: $semantic_similarity_threshold"
+                similarity_value=$(echo "$exp_data" | jq -r '.semantic_similarity // -1')
+                
+                if [[ "$similarity_value" != "-1" ]] && (( $(echo "$similarity_value < $semantic_similarity_threshold" | bc -l) )); then
+                  failure_msg="semantic_similarity: $similarity_value below threshold ($semantic_similarity_threshold) in experiment $exp_name"
+                  echo "$failure_msg" >> "$temp_failures_file"
+                  echo "false" > "$temp_status_file"
+                  echo "    ❌ $failure_msg"
+                elif [[ "$similarity_value" == "-1" ]]; then
+                  echo "    ⚠️ semantic_similarity: no data available (-1), skipping validation"
+                else
+                  echo "    ✅ semantic_similarity: $similarity_value >= $semantic_similarity_threshold"
+                fi
+              fi
+            done
+            
+            # Read back the results from temporary files
+            threshold_passed=$(cat "$temp_status_file")
+            if [[ -f "$temp_failures_file" ]]; then
+              while IFS= read -r line; do
+                [[ -n "$line" ]] && failures+=("$line")
+              done < "$temp_failures_file"
+            fi
+            
+            # Clean up temporary files
+            rm -f "$temp_failures_file" "$temp_status_file"
+          else
+            echo "⚠️ No experiment results found in results object"
+          fi
+        else
+          echo "⚠️ No detailed results available for threshold validation"
+          echo "ℹ️ Threshold validation will be skipped for this run"
+        fi
+        
+        # Convert failures array to JSON
+        if [[ ${#failures[@]} -eq 0 ]]; then
+          failures_json="[]"
+          echo "threshold_passed=true" >> $GITHUB_OUTPUT
+        else
+          failures_json=$(printf '%s\n' "${failures[@]}" | jq -R . | jq -s .)
+          threshold_passed=false
+          echo "threshold_passed=false" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "threshold_failures=$failures_json" >> $GITHUB_OUTPUT
+        
+        echo "🎯 Threshold validation completed"
+        echo "  Passed: $threshold_passed"
+        echo "  Failures: $failures_json"
+
     - name: Generate summary
       shell: bash
       id: summary
@@ -307,27 +524,40 @@ runs:
         build_success="${{ steps.build.outputs.build_success || 'false' }}"
         completed="${{ steps.monitor.outputs.completed || '0' }}"
         failed="${{ steps.monitor.outputs.failed || '0' }}"
+        threshold_passed="${{ steps.validate_thresholds.outputs.threshold_passed || 'true' }}"
+        threshold_failures="${{ steps.validate_thresholds.outputs.threshold_failures || '[]' }}"
         
         # Debug: Print what values we received
         echo "🔍 Summary step inputs:"
         echo "  build_success=$build_success"
         echo "  completed=$completed"
         echo "  failed=$failed"
+        echo "  threshold_passed=$threshold_passed"
+        echo "  threshold_failures=$threshold_failures"
         
         # Determine overall success
-        if [[ "$build_success" == "true" && "$failed" == "0" && "$completed" -gt 0 ]]; then
+        if [[ "$build_success" == "true" && "$failed" == "0" && "$completed" -gt 0 && "$threshold_passed" == "true" ]]; then
           overall_success="true"
           status_emoji="✅"
           status_text="Success"
         else
           overall_success="false"
           status_emoji="❌"
-          status_text="Failed"
+          if [[ "$threshold_passed" == "false" ]]; then
+            status_text="Failed (Threshold violations)"
+          elif [[ "$failed" -gt 0 ]]; then
+            status_text="Failed (Experiment failures)"
+          elif [[ "$build_success" != "true" ]]; then
+            status_text="Failed (Build error)"
+          else
+            status_text="Failed"
+          fi
         fi
         
         echo "success=$overall_success" >> $GITHUB_OUTPUT
         echo "completed_count=$completed" >> $GITHUB_OUTPUT
         echo "failed_count=$failed" >> $GITHUB_OUTPUT
+        echo "threshold_failures=$threshold_failures" >> $GITHUB_OUTPUT
         
         # Create summary JSON with proper escaping
         summary=$(jq -nc \
@@ -335,7 +565,9 @@ runs:
           --arg completed "$completed" \
           --arg failed "$failed" \
           --argjson success "$overall_success" \
-          '{"status": $status, "success": $success, "completed_count": ($completed | tonumber), "failed_count": ($failed | tonumber), "total_count": (($completed | tonumber) + ($failed | tonumber))}')
+          --argjson threshold_passed "$threshold_passed" \
+          --argjson threshold_failures "$threshold_failures" \
+          '{"status": $status, "success": $success, "completed_count": ($completed | tonumber), "failed_count": ($failed | tonumber), "total_count": (($completed | tonumber) + ($failed | tonumber)), "threshold_passed": $threshold_passed, "threshold_failures": $threshold_failures}')
         
         echo "results_summary=$summary" >> $GITHUB_OUTPUT
         
@@ -354,15 +586,37 @@ runs:
         | ❌ Failed | $failed |
         | 📊 Total | $((completed + failed)) |
         
+        ### Performance Thresholds
+        | Status | Result |
+        |--------|--------|
+        | 🎯 Threshold Validation | $(if [[ "$threshold_passed" == "true" ]]; then echo "✅ Passed"; else echo "❌ Failed"; fi) |
+        
+        $(if [[ "$threshold_passed" == "false" && "$threshold_failures" != "[]" ]]; then
+          echo "### ⚠️ Threshold Failures"
+          echo "$threshold_failures" | jq -r '.[] | "- " + .'
+        fi)
+        
         ### Build Details
         - **Overall Success**: $overall_success
         - **API Base URL**: ${{ inputs.api_base_url }}
         - **Build Triggered**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        $(if [[ -n '${{ inputs.threshold }}' ]]; then
+          echo "- **Thresholds Configured**: Yes"
+        else
+          echo "- **Thresholds Configured**: No"
+        fi)
         
         ### Experiment Configuration
         \`\`\`json
         ${{ inputs.experiments }}
         \`\`\`
+        
+        $(if [[ -n '${{ inputs.threshold }}' ]]; then
+          echo "### Threshold Configuration"
+          echo "\`\`\`json"
+          echo '${{ inputs.threshold }}'
+          echo "\`\`\`"
+        fi)
         
         ---
         *Generated by [Arato AI](https://arato.ai) GitHub Action*
@@ -377,6 +631,11 @@ runs:
         echo "✅ Completed: $completed"
         echo "❌ Failed: $failed"
         echo "📊 Total: $((completed + failed))"
+        echo "🎯 Thresholds Passed: $threshold_passed"
+        if [[ "$threshold_passed" == "false" && "$threshold_failures" != "[]" ]]; then
+          echo "⚠️  Threshold Failures:"
+          echo "$threshold_failures" | jq -r '.[] | "   - " + .'
+        fi
         echo "🎯 Overall Success: $overall_success"
         echo "════════════════════════════════════════"
         
