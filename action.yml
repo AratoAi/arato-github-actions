@@ -113,37 +113,37 @@ runs:
           
           # Extract experiment IDs for monitoring
           echo "Response body for debugging: $response_body"
-          if echo "$response_body" | jq -e '.builds' >/dev/null 2>&1; then
-            # Handle nested builds structure with steps
-            if echo "$response_body" | jq -e '.builds[0].builds[0].steps' >/dev/null 2>&1; then
-              # Extract all step IDs from the nested structure recursively
-              experiment_ids=$(echo "$response_body" | jq -r '
-                def extract_all_steps:
-                  if type == "object" then
-                    (if has("step") then [.step] else [] end) +
-                    (if has("steps") then [.steps[] | extract_all_steps] | flatten else [] end)
-                  elif type == "array" then
-                    [.[] | extract_all_steps] | flatten
-                  else
-                    []
-                  end;
-                [.builds[].builds[].steps[] | extract_all_steps] | flatten | @json
-              ')
-            # Handle simple builds structure: builds[].run_id
-            elif echo "$response_body" | jq -e '.builds[0].run_id' >/dev/null 2>&1; then
-              experiment_ids=$(echo "$response_body" | jq -r '[.builds[].run_id] | @json')
-            else
-              experiment_ids='[]'
-            fi
-          elif echo "$response_body" | jq -e '.run_id' >/dev/null 2>&1; then
-            experiment_ids=$(echo "$response_body" | jq -r '[.run_id] | @json')
+
+          # Default to empty array
+          experiment_ids='[]'
+
+          if echo "$response_body" | jq -e '.builds[0].steps' >/dev/null 2>&1; then
+            # New structure: .builds[].steps[] (potentially nested)
+            echo "🔍 Detected new builds structure with .builds[].steps"
+            experiment_ids=$(echo "$response_body" | jq -r '
+              def extract_all_steps:
+                if type == "object" then
+                  (if has("step") then [.step] else [] end) +
+                  (if has("steps") and (.steps | type == "array") then [.steps[] | extract_all_steps] | flatten else [] end)
+                elif type == "array" then
+                  [.[] | extract_all_steps] | flatten
+                else [] end;
+              [.builds[]?.steps[]? | extract_all_steps] | flatten | map(select(. != null)) | @json
+            ')
           else
-            # Fallback: try to extract any experiment-like ID from the response
-            if echo "$response_body" | jq -e '.experiment_id' >/dev/null 2>&1; then
-              experiment_ids=$(echo "$response_body" | jq -r '[.experiment_id] | @json')
+            echo "ℹ️ The expected structure .builds[0].steps was not found in the API response."
+          fi
+
+          # Final validation and default for experiment_ids
+          # Ensure it's a valid non-empty JSON array string, not "null" or empty shell string
+          if ! echo "$experiment_ids" | jq -e '. | type == "array"' >/dev/null 2>/dev/null || [[ "$experiment_ids" == "null" ]] || [[ -z "$experiment_ids" ]]; then
+            if [[ -n "$experiment_ids" && "$experiment_ids" != "null" && "$experiment_ids" != "[]" ]]; then # Log if there was some unexpected output
+                echo "⚠️ Extracted experiment_ids ('$experiment_ids') is not a valid JSON array or is null/empty. Defaulting to []."
             else
-              experiment_ids='[]'
+                # This case handles when experiment_ids is '[]' from a previous step or truly empty/null from jq
+                echo "ℹ️ No valid experiment IDs could be reliably extracted or response did not match known structures. Defaulting to []."
             fi
+            experiment_ids='[]'
           fi
           
           echo "experiment_ids=$experiment_ids" >> $GITHUB_OUTPUT
@@ -668,21 +668,6 @@ runs:
         echo "🎯 Thresholds Passed: $threshold_passed"
         if [[ "$threshold_passed" == "false" && "$threshold_failures_validated" != "[]" ]]; then
           echo "⚠️  Threshold Failures:"
-          echo "$threshold_failures_validated" | jq -r '.[] | "   - " + .'
-        fi
-        echo "🎯 Overall Success: $overall_success"
-        echo "════════════════════════════════════════"
-        
-        # Exit with appropriate code to set GitHub Actions job status
-        if [[ "$overall_success" == "false" ]]; then
-          echo ""
-          echo "❌ Build failed due to threshold violations or experiment failures"
-          echo "   GitHub Actions job will be marked as FAILED"
-          exit 1
-        else
-          echo ""
-          echo "✅ Build completed successfully"
-          echo "   GitHub Actions job will be marked as SUCCESS"
-        fi
-        
+          echo "$threshold_failures_validated" | jq -r '.
+
 
