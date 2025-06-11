@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Arato Build
-        uses: AratoAi/arato-github-actions@v0.0.1
+        uses: AratoAi/arato-github-actions@v0.0.X
         with:
           experiments: ${{ inputs.experiments }}
           api_keys: |
