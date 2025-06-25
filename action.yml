@@ -79,25 +79,59 @@ runs:
         fi
         
         # Create request payload
+        echo "🔍 Creating request payload..."
+        echo "📋 Experiments: $experiments"
+        echo "📋 API keys provided: $(echo '${{ inputs.api_keys }}' | jq 'keys')"
+        
         payload=$(jq -n \
           --argjson experiment "$experiments" \
           --argjson api_keys '${{ inputs.api_keys }}' \
-          '{experiment: $experiment, api_keys: $api_keys}')
+          '{experiment: $experiment, api_keys: $api_keys}') || {
+          echo "❌ Failed to create JSON payload"
+          echo "build_success=false" >> $GITHUB_OUTPUT
+          exit 1
+        }
+        
+        # Validate payload is valid JSON
+        if ! echo "$payload" | jq empty 2>/dev/null; then
+          echo "❌ Generated payload is not valid JSON"
+          echo "❌ Payload: $payload"
+          echo "build_success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
         
         echo "🚀 Starting Arato build..."
         
+        # Make API call with better error handling
+        echo "📡 Making API request to ${{ inputs.api_base_url }}/api/build"
+        echo "📋 Payload: $payload"
         
-        # Make API call
-        response=$(curl -s -w "\n%{http_code}" \
+        if ! response=$(curl -s -w "\n%{http_code}" \
           -X POST \
           -H "Content-Type: application/json" \
           -H "Authorization: Bearer ${{ inputs.arato_api_key }}" \
           -d "$payload" \
-          "${{ inputs.api_base_url }}/api/build")
+          "${{ inputs.api_base_url }}/api/build" 2>&1); then
+          echo "❌ Curl command failed with error: $response"
+          echo "build_success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
         
         # Parse response
+        echo "📋 Raw response: $response"
         http_code=$(echo "$response" | tail -n1)
         response_body=$(echo "$response" | head -n -1)
+        
+        echo "📋 HTTP Code: $http_code"
+        echo "📋 Response Body: $response_body"
+        
+        # Validate HTTP code format
+        if ! [[ "$http_code" =~ ^[0-9]{3}$ ]]; then
+          echo "❌ Invalid HTTP response code: '$http_code'"
+          echo "❌ This usually indicates a network error or malformed response"
+          echo "build_success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
         
         if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
           # Validate response is JSON before declaring success
@@ -150,7 +184,33 @@ runs:
           echo "Found experiments to monitor: $experiment_ids"
         else
           echo "❌ Build failed with HTTP $http_code"
-          echo "$response_body"
+          
+          # Provide more specific error messages based on HTTP status
+          case "$http_code" in
+            400)
+              echo "❌ Bad Request: Check your experiment ID format and API keys"
+              ;;
+            401)
+              echo "❌ Unauthorized: Check your Arato API key (should start with 'ar-')"
+              ;;
+            403)
+              echo "❌ Forbidden: Your API key doesn't have permission to build this experiment"
+              ;;
+            404)
+              echo "❌ Not Found: Experiment not found or API endpoint incorrect"
+              ;;
+            429)
+              echo "❌ Rate Limited: Too many requests, please try again later"
+              ;;
+            5*)
+              echo "❌ Server Error: Arato API is experiencing issues, please try again later"
+              ;;
+            *)
+              echo "❌ Unexpected HTTP status code"
+              ;;
+          esac
+          
+          echo "❌ Response body: $response_body"
           echo "build_success=false" >> $GITHUB_OUTPUT
           exit 1
         fi
