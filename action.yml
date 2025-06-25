@@ -728,6 +728,10 @@ runs:
         echo "🎯 Thresholds Passed: $threshold_passed"
         if [[ "$threshold_passed" == "false" && "$threshold_failures_validated" != "[]" ]]; then
           echo "⚠️  Threshold Failures:"
-          echo "$threshold_failures_validated" | jq -r '.
+          echo "$threshold_failures_validated" | jq -r '.[]'
+        fi
+        echo "════════════════════════════════════════"
+        
+        echo "🎉 Build summary generated successfully!"
 
 
