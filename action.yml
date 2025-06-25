@@ -462,15 +462,31 @@ runs:
                   
                   # Check each validation type
                   for validation_type in "${validation_types[@]}"; do
-                    pass_rate=$(echo "$pass_percentage_data" | jq -r --arg type "$validation_type" '.[$type]')
+                    # Extract pass rate with proper decimal precision
+                    pass_rate_raw=$(echo "$pass_percentage_data" | jq -r --arg type "$validation_type" '.[$type]')
+                    
+                    # Debug: Show raw extracted value
+                    echo "    🔍 Debug: Raw pass_rate for $validation_type: '$pass_rate_raw'"
+                    
+                    # Ensure decimal formatting - if it's an integer, add .0
+                    if [[ "$pass_rate_raw" =~ ^[0-9]+$ ]]; then
+                      pass_rate="${pass_rate_raw}.0"
+                    else
+                      pass_rate="$pass_rate_raw"
+                    fi
+                    
+                    # Format to show reasonable precision (up to 4 decimal places)
+                    pass_rate_formatted=$(printf "%.4g" "$pass_rate" 2>/dev/null || echo "$pass_rate")
+                    
+                    echo "    🔍 Debug: Formatted pass_rate: '$pass_rate_formatted'"
                     
                     if (( $(echo "$pass_rate < $eval_pass_rate_threshold" | bc -l) )); then
-                      failure_msg="eval_pass_rate: $validation_type ($pass_rate) below threshold ($eval_pass_rate_threshold) in experiment $exp_name"
+                      failure_msg="eval_pass_rate: $validation_type ($pass_rate_formatted) below threshold ($eval_pass_rate_threshold) in experiment $exp_name"
                       failures+=("$failure_msg")
                       threshold_passed=false
                       echo "    ❌ $failure_msg"
                     else
-                      echo "    ✅ $validation_type: $pass_rate >= $eval_pass_rate_threshold"
+                      echo "    ✅ $validation_type: $pass_rate_formatted >= $eval_pass_rate_threshold"
                     fi
                   done
                 else
@@ -526,17 +542,24 @@ runs:
               # Validate semantic_similarity if threshold provided
               if [[ -n "$semantic_similarity_threshold" ]]; then
                 echo "  🔍 Checking semantic_similarity threshold: $semantic_similarity_threshold"
-                similarity_value=$(echo "$exp_data" | jq -r '.semantic_similarity // -1')
+                similarity_value_raw=$(echo "$exp_data" | jq -r '.semantic_similarity // -1')
                 
-                if [[ "$similarity_value" != "-1" ]] && (( $(echo "$similarity_value < $semantic_similarity_threshold" | bc -l) )); then
-                  failure_msg="semantic_similarity: $similarity_value below threshold ($semantic_similarity_threshold) in experiment $exp_name"
+                # Format similarity value with proper decimal precision
+                if [[ "$similarity_value_raw" != "-1" ]]; then
+                  similarity_value_formatted=$(printf "%.6g" "$similarity_value_raw" 2>/dev/null || echo "$similarity_value_raw")
+                else
+                  similarity_value_formatted="-1"
+                fi
+                
+                if [[ "$similarity_value_raw" != "-1" ]] && (( $(echo "$similarity_value_raw < $semantic_similarity_threshold" | bc -l) )); then
+                  failure_msg="semantic_similarity: $similarity_value_formatted below threshold ($semantic_similarity_threshold) in experiment $exp_name"
                   failures+=("$failure_msg")
                   threshold_passed=false
                   echo "    ❌ $failure_msg"
-                elif [[ "$similarity_value" == "-1" ]]; then
+                elif [[ "$similarity_value_raw" == "-1" ]]; then
                   echo "    ⚠️ semantic_similarity: no data available (-1), skipping validation"
                 else
-                  echo "    ✅ semantic_similarity: $similarity_value >= $semantic_similarity_threshold"
+                  echo "    ✅ semantic_similarity: $similarity_value_formatted >= $semantic_similarity_threshold"
                 fi
               fi
             done
@@ -733,5 +756,14 @@ runs:
         echo "════════════════════════════════════════"
         
         echo "🎉 Build summary generated successfully!"
+        
+        # Exit with appropriate code based on overall success
+        if [[ "$overall_success" == "false" ]]; then
+          echo "❌ Build failed - exiting with code 1"
+          exit 1
+        else
+          echo "✅ Build succeeded - exiting with code 0"
+          exit 0
+        fi
 
 
